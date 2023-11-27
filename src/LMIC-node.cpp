@@ -821,13 +821,13 @@ uint32_t sats;
 
 void prepareMessage()
 {
+    ostime_t timestamp = os_getTime();
     uint8_t payloadLength = 0;
     uint8_t fPort = 0;
     if (gps.location.isValid() && gps.location.age() < 1000 && messages == 0)
     {
 #ifdef USE_SERIAL
-        ostime_t timestamp = os_getTime();
-        Serial.println("Found GPS after " + String(millis()) + "ms.");
+        printEvent(timestamp, ("Found GPS after " + String(millis()) + "ms.").c_str());
         printEvent(timestamp, ("GPS: " + String(gps.location.lat()) + "," + String(gps.location.lng()) + " " + String(gps.hdop.value())).c_str(), PrintTarget::Serial);
 #endif
         hadGPSFix = true;
@@ -882,9 +882,9 @@ void prepareMessage()
         payloadBuffer[9] = (batP / 100.0) * 255;
 */
     }
-    else if (((millis() > 35000 && hadGPSFix) || (millis() > 60000 && hadGPSFix)) && messages == 0)
+    else if (((millis() > 35000 && hadGPSFix) || (millis() > 60000 && !hadGPSFix)) && messages == 0)
     {
-        Serial.println("GPS Timeout after " + String(millis()) + "ms.");
+        printEvent(timestamp, ("GPS Timeout after " + String(millis()) + "ms.").c_str());
         WiFi.setSleep(WIFI_PS_NONE);
         uint8_t num = WiFi.scanNetworks();
         if (num == 0)
@@ -895,7 +895,6 @@ void prepareMessage()
         else
         {
 #ifdef USE_SERIAL
-            ostime_t timestamp = os_getTime();
             printEvent(timestamp, ("Found networks: " + String(num)).c_str(), PrintTarget::Serial);
 #endif
             fPort = 2;
@@ -923,10 +922,12 @@ void prepareMessage()
 
     if (fPort == 0)
     {
+        printEvent(timestamp, ("Still waiting for GPS Fix: " + String(millis()) + " ms waiting now.").c_str());
     }
     if (fPort != 0)
     {
         messages++;
+        printEvent(timestamp, ("Message queued. Sending now. FPORT: " + String(fPort)).c_str());
         scheduleUplink(fPort, payloadBuffer, payloadLength);
     }
 }
@@ -986,9 +987,7 @@ void processDownlink(ostime_t txCompleteTimestamp, uint8_t fPort, uint8_t *data,
         printSpaces(serial, MESSAGE_INDENT);
         serial.println(F("Reset cmd received"));
 #endif
-        ostime_t timestamp = os_getTime();
-        resetCounter();
-        printEvent(timestamp, "Counter reset", PrintTarget::All, false);
+        ESP.restart();
     }
 }
 
@@ -1037,7 +1036,6 @@ void setup()
 
     // Place code for initializing sensors etc. here.
 
-    resetCounter();
     wakeGPS();
 
     //  █ █ █▀▀ █▀▀ █▀▄   █▀▀ █▀█ █▀▄ █▀▀   █▀▀ █▀█ █▀▄
