@@ -52,6 +52,24 @@ void processWork(ostime_t timestamp);
 void processDownlink(ostime_t eventTimestamp, uint8_t fPort, uint8_t* data, uint8_t dataLength);
 void onLmicEvent(void *pUserData, ev_t ev);
 void displayTxSymbol(bool visible);
+unsigned long msSinceLastMessage();
+int getMessageQueue();
+int getMessageCount();
+void saveSession();
+void printEvent(ostime_t timestamp,
+                const char *const message,
+                PrintTarget target = PrintTarget::All,
+                bool clearDisplayStatusRow = true,
+                bool eventLabel = false);
+void printEvent(ostime_t timestamp,
+                ev_t ev,
+                PrintTarget target = PrintTarget::All,
+                bool clearDisplayStatusRow = true);
+void printEvent(String str);
+void scheduleMessage(uint8_t fPort, uint8_t *data, uint8_t dataLength, bool confirmed = false);
+lmic_tx_error_t scheduleUplink(uint8_t fPort, uint8_t *data, uint8_t dataLength, bool confirmed = false);
+
+
 
 #ifndef DO_WORK_INTERVAL_SECONDS            // Should be set in platformio.ini
     #define DO_WORK_INTERVAL_SECONDS 300    // Default 5 minutes if not set
@@ -186,67 +204,16 @@ enum class ActivationMode {OTAA, ABP};
     #endif
         
 
-    void printChars(Print& printer, char ch, uint8_t count, bool linefeed = false)
-    {
-        for (uint8_t i = 0; i < count; ++i)
-        {
-            printer.print(ch);
-        }
-        if (linefeed)
-        {
-            printer.println();
-        }
-    }
+    void printChars(Print& printer, char ch, uint8_t count, bool linefeed = false);
 
 
-    void printSpaces(Print& printer, uint8_t count, bool linefeed = false)
-    {
-        printChars(printer, ' ', count, linefeed);
-    }
+    void printSpaces(Print& printer, uint8_t count, bool linefeed = false);
 
 
-    void printHex(Print& printer, uint8_t* bytes, size_t length = 1, bool linefeed = false, char separator = 0)
-    {
-        for (size_t i = 0; i < length; ++i)
-        {
-            if (i > 0 && separator != 0)
-            {
-                printer.print(separator);
-            }
-            if (bytes[i] <= 0x0F)
-            {
-                printer.print('0');
-            }
-            printer.print(bytes[i], HEX);        
-        }
-        if (linefeed)
-        {
-            printer.println();
-        }
-    }
+    void printHex(Print& printer, uint8_t* bytes, size_t length = 1, bool linefeed = false, char separator = 0);
 
 
-    void setTxIndicatorsOn(bool on = true)
-    {
-        if (on)
-        {
-            #ifdef USE_LED
-                led.on();
-            #endif
-            #ifdef USE_DISPLAY
-                displayTxSymbol(true);
-            #endif           
-        }
-        else
-        {
-            #ifdef USE_LED
-                led.off();
-            #endif
-            #ifdef USE_DISPLAY
-                displayTxSymbol(false);
-            #endif           
-        }        
-    }
+    void setTxIndicatorsOn(bool on = true);
     
 #endif  // USE_SERIAL || USE_DISPLAY
 
@@ -273,83 +240,14 @@ enum class ActivationMode {OTAA, ABP};
     #define CLMICSYMBOL_COL   14
     #define TXSYMBOL_COL      15
 
-    void initDisplay()
-    {
-        display.begin();
-        display.setFont(u8x8_font_victoriamedium8_r); 
-    }
+    void initDisplay();
 
-    void displayTxSymbol(bool visible = true)
-    {
-        if (visible)
-        {
-            display.drawTile(TXSYMBOL_COL, ROW_0, 1, transmitSymbol);
-        }
-        else
-        {
-            display.drawGlyph(TXSYMBOL_COL, ROW_0, char(0x20));
-        }
-    }    
+    void displayTxSymbol(bool visible = true);  
 #endif // USE_DISPLAY
 
 
 #ifdef USE_SERIAL
-    bool initSerial(unsigned long speed = 115200, int16_t timeoutSeconds = 0)
-    {
-        // Initializes the serial port.
-        // Optionally waits for serial port to be ready.
-        // Will display status and progress on display (if enabled)
-        // which can be useful for tracing (e.g. ATmega328u4) serial port issues.
-        // A negative timeoutSeconds value will wait indefinitely.
-        // A value of 0 (default) will not wait.
-        // Returns: true when serial port ready,
-        //          false when not ready.
-
-        serial.begin(speed);
-
-        #if WAITFOR_SERIAL_S != 0
-            if (timeoutSeconds != 0)
-            {   
-                bool indefinite = (timeoutSeconds < 0);
-                uint16_t secondsLeft = timeoutSeconds; 
-                #ifdef USE_DISPLAY
-                    display.setCursor(0, ROW_1);
-                    display.print(F("Waiting for"));
-                    display.setCursor(0,  ROW_2);                
-                    display.print(F("serial port"));
-                #endif
-
-                while (!serial && (indefinite || secondsLeft > 0))
-                {
-                    if (!indefinite)
-                    {
-                        #ifdef USE_DISPLAY
-                            display.clearLine(ROW_4);
-                            display.setCursor(0, ROW_4);
-                            display.print(F("timeout in "));
-                            display.print(secondsLeft);
-                            display.print('s');
-                        #endif
-                        --secondsLeft;
-                    }
-                    delay(1000);
-                }  
-                #ifdef USE_DISPLAY
-                    display.setCursor(0, ROW_4);
-                    if (serial)
-                    {
-                        display.print(F("Connected"));
-                    }
-                    else
-                    {
-                        display.print(F("NOT connected"));
-                    }
-                #endif
-            }
-        #endif
-
-        return serial;
-    }
+    bool initSerial(unsigned long speed = 115200, int16_t timeoutSeconds = 0);
 #endif
 
 

@@ -51,24 +51,24 @@
  ******************************************************************************/
 
 #include "LMIC-node.h"
+#include "LMIC-user.h"
 
 //  █ █ █▀▀ █▀▀ █▀▄   █▀▀ █▀█ █▀▄ █▀▀   █▀▄ █▀▀ █▀▀ ▀█▀ █▀█
 //  █ █ ▀▀█ █▀▀ █▀▄   █   █ █ █ █ █▀▀   █▀▄ █▀▀ █ █  █  █ █
 //  ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀   ▀▀▀ ▀▀▀ ▀▀  ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀
 
+int queue = 0;
+unsigned long msLastMessage = 0;
 int messages = 0;
-RTC_DATA_ATTR bool hadGPSFix = 0;
 RTC_DATA_ATTR int64_t lastSaveTime = 0;
 RTC_DATA_ATTR bool hasRTCData = false;
 RTC_DATA_ATTR lmic_t LMIC_RTC;
-const uint8_t maxNetworkCount = 5;
-const uint8_t payloadBufferLength = maxNetworkCount * 7; // Adjust to fit max payload length
+extern const uint8_t payloadBufferLength; // Adjust to fit max payload length
 
 //  █ █ █▀▀ █▀▀ █▀▄   █▀▀ █▀█ █▀▄ █▀▀   █▀▀ █▀█ █▀▄
 //  █ █ ▀▀█ █▀▀ █▀▄   █   █ █ █ █ █▀▀   █▀▀ █ █ █ █
 //  ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀   ▀▀▀ ▀▀▀ ▀▀  ▀▀▀   ▀▀▀ ▀ ▀ ▀▀
-
-uint8_t payloadBuffer[payloadBufferLength];
+extern uint8_t payloadBuffer[];
 static osjob_t doWorkJob;
 uint32_t doWorkIntervalSeconds = DO_WORK_INTERVAL_SECONDS; // Change value in platformio.ini
 
@@ -94,6 +94,148 @@ void os_getArtEui(u1_t *buf) {}
 void os_getDevKey(u1_t *buf) {}
 #endif
 
+#if defined(USE_SERIAL) || defined(USE_DISPLAY)
+
+void printChars(Print &printer, char ch, uint8_t count, bool linefeed)
+{
+    for (uint8_t i = 0; i < count; ++i)
+    {
+        printer.print(ch);
+    }
+    if (linefeed)
+    {
+        printer.println();
+    }
+}
+
+void printSpaces(Print &printer, uint8_t count, bool linefeed)
+{
+    printChars(printer, ' ', count, linefeed);
+}
+
+void printHex(Print &printer, uint8_t *bytes, size_t length, bool linefeed, char separator)
+{
+    for (size_t i = 0; i < length; ++i)
+    {
+        if (i > 0 && separator != 0)
+        {
+            printer.print(separator);
+        }
+        if (bytes[i] <= 0x0F)
+        {
+            printer.print('0');
+        }
+        printer.print(bytes[i], HEX);
+    }
+    if (linefeed)
+    {
+        printer.println();
+    }
+}
+
+void setTxIndicatorsOn(bool on)
+{
+    if (on)
+    {
+#ifdef USE_LED
+        led.on();
+#endif
+#ifdef USE_DISPLAY
+        displayTxSymbol(true);
+#endif
+    }
+    else
+    {
+#ifdef USE_LED
+        led.off();
+#endif
+#ifdef USE_DISPLAY
+        displayTxSymbol(false);
+#endif
+    }
+}
+
+#endif // USE_SERIAL || USE_DISPLAY
+
+#ifdef USE_DISPLAY
+void initDisplay()
+{
+    display.begin();
+    display.setFont(u8x8_font_victoriamedium8_r);
+}
+
+void displayTxSymbol(bool visible)
+{
+    if (visible)
+    {
+        display.drawTile(TXSYMBOL_COL, ROW_0, 1, transmitSymbol);
+    }
+    else
+    {
+        display.drawGlyph(TXSYMBOL_COL, ROW_0, char(0x20));
+    }
+}
+#endif // USE_DISPLAY
+
+#ifdef USE_SERIAL
+bool initSerial(unsigned long speed, int16_t timeoutSeconds)
+{
+    // Initializes the serial port.
+    // Optionally waits for serial port to be ready.
+    // Will display status and progress on display (if enabled)
+    // which can be useful for tracing (e.g. ATmega328u4) serial port issues.
+    // A negative timeoutSeconds value will wait indefinitely.
+    // A value of 0 (default) will not wait.
+    // Returns: true when serial port ready,
+    //          false when not ready.
+
+    serial.begin(speed);
+
+#if WAITFOR_SERIAL_S != 0
+    if (timeoutSeconds != 0)
+    {
+        bool indefinite = (timeoutSeconds < 0);
+        uint16_t secondsLeft = timeoutSeconds;
+#ifdef USE_DISPLAY
+        display.setCursor(0, ROW_1);
+        display.print(F("Waiting for"));
+        display.setCursor(0, ROW_2);
+        display.print(F("serial port"));
+#endif
+
+        while (!serial && (indefinite || secondsLeft > 0))
+        {
+            if (!indefinite)
+            {
+#ifdef USE_DISPLAY
+                display.clearLine(ROW_4);
+                display.setCursor(0, ROW_4);
+                display.print(F("timeout in "));
+                display.print(secondsLeft);
+                display.print('s');
+#endif
+                --secondsLeft;
+            }
+            delay(1000);
+        }
+#ifdef USE_DISPLAY
+        display.setCursor(0, ROW_4);
+        if (serial)
+        {
+            display.print(F("Connected"));
+        }
+        else
+        {
+            display.print(F("NOT connected"));
+        }
+#endif
+    }
+#endif
+
+    return serial;
+}
+#endif
+
 int64_t osTime()
 {
     struct timeval tv_now;
@@ -104,82 +246,39 @@ int64_t osTime()
     return time_ms;
 }
 
-void LoraWANPrintLMICOpmode(void)
+void printEvent(String str)
 {
-    Serial.print(F("LMIC.opmode: "));
-    if (LMIC.opmode & OP_NONE)
-    {
-        Serial.print(F("OP_NONE "));
-    }
-    if (LMIC.opmode & OP_SCAN)
-    {
-        Serial.print(F("OP_SCAN "));
-    }
-    if (LMIC.opmode & OP_TRACK)
-    {
-        Serial.print(F("OP_TRACK "));
-    }
-    if (LMIC.opmode & OP_JOINING)
-    {
-        Serial.print(F("OP_JOINING "));
-    }
-    if (LMIC.opmode & OP_TXDATA)
-    {
-        Serial.print(F("OP_TXDATA "));
-    }
-    if (LMIC.opmode & OP_POLL)
-    {
-        Serial.print(F("OP_POLL "));
-    }
-    if (LMIC.opmode & OP_REJOIN)
-    {
-        Serial.print(F("OP_REJOIN "));
-    }
-    if (LMIC.opmode & OP_SHUTDOWN)
-    {
-        Serial.print(F("OP_SHUTDOWN "));
-    }
-    if (LMIC.opmode & OP_TXRXPEND)
-    {
-        Serial.print(F("OP_TXRXPEND "));
-    }
-    if (LMIC.opmode & OP_RNDTX)
-    {
-        Serial.print(F("OP_RNDTX "));
-    }
-    if (LMIC.opmode & OP_PINGINI)
-    {
-        Serial.print(F("OP_PINGINI "));
-    }
-    if (LMIC.opmode & OP_PINGABLE)
-    {
-        Serial.print(F("OP_PINGABLE "));
-    }
-    if (LMIC.opmode & OP_NEXTCHNL)
-    {
-        Serial.print(F("OP_NEXTCHNL "));
-    }
-    if (LMIC.opmode & OP_LINKDEAD)
-    {
-        Serial.print(F("OP_LINKDEAD "));
-    }
-    if (LMIC.opmode & OP_LINKDEAD)
-    {
-        Serial.print(F("OP_LINKDEAD "));
-    }
-    if (LMIC.opmode & OP_TESTMODE)
-    {
-        Serial.print(F("OP_TESTMODE "));
-    }
-    if (LMIC.opmode & OP_UNJOIN)
-    {
-        Serial.print(F("OP_UNJOIN "));
-    }
+#ifdef USE_SERIAL
+    ostime_t timestamp = os_getTime();
+    printEvent(timestamp, str.c_str());
+#endif
+}
+
+unsigned long msSinceLastMessage()
+{
+    return millis() - msLastMessage;
+}
+
+int getMessageQueue()
+{
+    return queue;
+}
+
+int getMessageCount()
+{
+    return messages;
+}
+
+void scheduleMessage(uint8_t fPort, uint8_t *data, uint8_t dataLength, bool confirmed)
+{
+    queue++;
+    messages++;
+    msLastMessage = millis();
+    scheduleUplink(fPort, data, dataLength, confirmed);
 }
 
 void saveSession()
 {
-    LoraWANPrintLMICOpmode();
     LMIC_RTC = LMIC;
     hasRTCData = true;
     lastSaveTime = osTime();
@@ -208,16 +307,6 @@ void loadSession()
     {
         LMIC.globalDutyAvail = 0;
     }
-}
-
-void goDeepSleep()
-{
-    sleepGPS();
-    saveSession();
-    Serial.println("Go DeepSleep after " + String(millis()) + "ms.");
-    Serial.flush();
-    esp_sleep_enable_timer_wakeup(60 * 1000000);
-    esp_deep_sleep_start();
 }
 
 int16_t getSnrTenfold()
@@ -279,9 +368,9 @@ int16_t getRssi(int8_t snr)
 
 void printEvent(ostime_t timestamp,
                 const char *const message,
-                PrintTarget target = PrintTarget::All,
-                bool clearDisplayStatusRow = true,
-                bool eventLabel = false)
+                PrintTarget target,
+                bool clearDisplayStatusRow,
+                bool eventLabel)
 {
 #ifdef USE_DISPLAY
     if (target == PrintTarget::All || target == PrintTarget::Display)
@@ -324,8 +413,8 @@ void printEvent(ostime_t timestamp,
 
 void printEvent(ostime_t timestamp,
                 ev_t ev,
-                PrintTarget target = PrintTarget::All,
-                bool clearDisplayStatusRow = true)
+                PrintTarget target,
+                bool clearDisplayStatusRow)
 {
 #if defined(USE_DISPLAY) || defined(USE_SERIAL)
     printEvent(timestamp, lmicEventNames[ev], target, clearDisplayStatusRow, true);
@@ -704,8 +793,11 @@ void onEvent(ev_t ev)
         printEvent(timestamp, ev);
         printFrameCounters();
 
-        if (messages > 0)
-            goDeepSleep();
+        if (queue > 0)
+        {
+            queue--;
+            msLastMessage = millis();
+        }
 
         // Check if downlink was received
         if (LMIC.dataLen != 0 || LMIC.dataBeg != 0)
@@ -716,8 +808,11 @@ void onEvent(ev_t ev)
                 fPort = LMIC.frame[LMIC.dataBeg - 1];
             }
             printDownlinkInfo();
-            processDownlink(timestamp, fPort, LMIC.frame + LMIC.dataBeg, LMIC.dataLen);
+            UserDownlinkMessage(timestamp, fPort, LMIC.frame + LMIC.dataBeg, LMIC.dataLen);
         }
+
+        UserRXTXComplete();
+
         break;
 
     // Below events are printed only.
@@ -753,10 +848,6 @@ static void doWorkCallback(osjob_t *job)
     // The actual work is performed in function processWork() which is called below.
 
     ostime_t timestamp = os_getTime();
-#ifdef USE_SERIAL
-    serial.println();
-    printEvent(timestamp, "doWork job started", PrintTarget::Serial);
-#endif
 
     // Do the work that needs to be performed.
     processWork(timestamp);
@@ -766,7 +857,7 @@ static void doWorkCallback(osjob_t *job)
     os_setTimedCallback(&doWorkJob, startAt, doWorkCallback);
 }
 
-lmic_tx_error_t scheduleUplink(uint8_t fPort, uint8_t *data, uint8_t dataLength, bool confirmed = false)
+lmic_tx_error_t scheduleUplink(uint8_t fPort, uint8_t *data, uint8_t dataLength, bool confirmed)
 {
     // This function is called from the processWork() function to schedule
     // transmission of an uplink message that was prepared by processWork().
@@ -810,128 +901,6 @@ lmic_tx_error_t scheduleUplink(uint8_t fPort, uint8_t *data, uint8_t dataLength,
 //  █ █ ▀▀█ █▀▀ █▀▄   █   █ █ █ █ █▀▀   █▀▄ █▀▀ █ █  █  █ █
 //  ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀   ▀▀▀ ▀▀▀ ▀▀  ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀
 
-uint8_t currentPayloadLength = 0;
-
-#include "WiFi.h"
-
-uint32_t LatitudeBinary, LongitudeBinary;
-uint16_t altitudeGps;
-uint8_t hdopGps;
-uint32_t sats;
-
-void prepareMessage()
-{
-    ostime_t timestamp = os_getTime();
-    uint8_t payloadLength = 0;
-    uint8_t fPort = 0;
-    if (gps.location.isValid() && gps.location.age() < 1000 && messages == 0)
-    {
-#ifdef USE_SERIAL
-        printEvent(timestamp, ("Found GPS after " + String(millis()) + "ms.").c_str());
-        printEvent(timestamp, ("GPS: " + String(gps.location.lat()) + "," + String(gps.location.lng()) + " " + String(gps.hdop.value())).c_str(), PrintTarget::Serial);
-#endif
-        hadGPSFix = true;
-        fPort = 1;
-        float lat, lon, alt, course, speed, hdop, sats;
-        lat = gps.location.lat();
-        lon = gps.location.lng();
-        alt = gps.altitude.meters();
-        course = gps.course.deg();
-        speed = gps.speed.kmph();
-        sats = gps.satellites.value();
-        hdop = gps.hdop.hdop();
-
-        unsigned char *puc;
-
-        payloadLength = 0;
-        puc = (unsigned char *)(&lat);
-        payloadBuffer[payloadLength++] = puc[0];
-        payloadBuffer[payloadLength++] = puc[1];
-        payloadBuffer[payloadLength++] = puc[2];
-        payloadBuffer[payloadLength++] = puc[3];
-        puc = (unsigned char *)(&lon);
-        payloadBuffer[payloadLength++] = puc[0];
-        payloadBuffer[payloadLength++] = puc[1];
-        payloadBuffer[payloadLength++] = puc[2];
-        payloadBuffer[payloadLength++] = puc[3];
-        puc = (unsigned char *)(&alt);
-        payloadBuffer[payloadLength++] = puc[0];
-        payloadBuffer[payloadLength++] = puc[1];
-        payloadBuffer[payloadLength++] = puc[2];
-        payloadBuffer[payloadLength++] = puc[3];
-        puc = (unsigned char *)(&course);
-        payloadBuffer[payloadLength++] = puc[0];
-        payloadBuffer[payloadLength++] = puc[1];
-        payloadBuffer[payloadLength++] = puc[2];
-        payloadBuffer[payloadLength++] = puc[3];
-        puc = (unsigned char *)(&speed);
-        payloadBuffer[payloadLength++] = puc[0];
-        payloadBuffer[payloadLength++] = puc[1];
-        payloadBuffer[payloadLength++] = puc[2];
-        payloadBuffer[payloadLength++] = puc[3];
-        puc = (unsigned char *)(&hdop);
-        payloadBuffer[payloadLength++] = puc[0];
-        payloadBuffer[payloadLength++] = puc[1];
-        payloadBuffer[payloadLength++] = puc[2];
-        payloadBuffer[payloadLength++] = puc[3];
-        
-        /*float batV = GetBatteryVoltage();
-        float batP = GetBatteryPercent(batV);
-
-        payloadBuffer[8] = ((batV - 3) / 2.0) * 255;
-        payloadBuffer[9] = (batP / 100.0) * 255;
-*/
-    }
-    else if (((millis() > 35000 && hadGPSFix) || (millis() > 60000 && !hadGPSFix)) && messages == 0)
-    {
-        printEvent(timestamp, ("GPS Timeout after " + String(millis()) + "ms.").c_str());
-        WiFi.setSleep(WIFI_PS_NONE);
-        uint8_t num = WiFi.scanNetworks();
-        if (num == 0)
-        {
-            payloadBuffer[0] = 0;
-            fPort = 2;
-        }
-        else
-        {
-#ifdef USE_SERIAL
-            printEvent(timestamp, ("Found networks: " + String(num)).c_str(), PrintTarget::Serial);
-#endif
-            fPort = 2;
-            num = min(maxNetworkCount, num);
-            payloadBuffer[0] = (uint8_t)num;
-            payloadLength++;
-            for (int i = 0; i < num; ++i)
-            {
-                memcpy(&payloadBuffer[payloadLength], WiFi.BSSID(i), 6);
-                payloadLength += 6;
-                payloadBuffer[payloadLength] = (uint8_t)(WiFi.RSSI(i) * -1);
-                payloadLength++;
-            }
-
-            /*float batV = GetBatteryVoltage();
-            float batP = GetBatteryPercent(batV);
-
-            payloadBuffer[payloadLength] = ((batV - 3) / 2.0) * 255;
-            payloadBuffer[payloadLength + 1] = (batP / 100.0) * 255;
-            payloadLength += 2;*/
-        }
-
-        WiFi.setSleep(WIFI_PS_MAX_MODEM);
-    }
-
-    if (fPort == 0)
-    {
-        printEvent(timestamp, ("Still waiting for GPS Fix: " + String(millis()) + " ms waiting now.").c_str());
-    }
-    if (fPort != 0)
-    {
-        messages++;
-        printEvent(timestamp, ("Message queued. Sending now. FPORT: " + String(fPort)).c_str());
-        scheduleUplink(fPort, payloadBuffer, payloadLength);
-    }
-}
-
 void processWork(ostime_t doWorkJobTimeStamp)
 {
     // This function is called from the doWorkCallback()
@@ -964,30 +933,8 @@ void processWork(ostime_t doWorkJobTimeStamp)
         }
         else
         {
-            prepareMessage();
+            UserPrepareMessage();
         }
-    }
-}
-
-void processDownlink(ostime_t txCompleteTimestamp, uint8_t fPort, uint8_t *data, uint8_t dataLength)
-{
-    // This function is called from the onEvent() event handler
-    // on EV_TXCOMPLETE when a downlink message was received.
-
-    // Implements a 'reset counter' command that can be sent via a downlink message.
-    // To send the reset counter command to the node, send a downlink message
-    // (e.g. from the TTN Console) with single byte value resetCmd on port cmdPort.
-
-    const uint8_t cmdPort = 100;
-    const uint8_t resetCmd = 0xC0;
-
-    if (fPort == cmdPort && dataLength == 1 && data[0] == resetCmd)
-    {
-#ifdef USE_SERIAL
-        printSpaces(serial, MESSAGE_INDENT);
-        serial.println(F("Reset cmd received"));
-#endif
-        ESP.restart();
     }
 }
 
@@ -1036,13 +983,11 @@ void setup()
 
     // Place code for initializing sensors etc. here.
 
-    wakeGPS();
+    UserSetup();
 
     //  █ █ █▀▀ █▀▀ █▀▄   █▀▀ █▀█ █▀▄ █▀▀   █▀▀ █▀█ █▀▄
     //  █ █ ▀▀█ █▀▀ █▀▄   █   █ █ █ █ █▀▀   █▀▀ █ █ █ █
     //  ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀   ▀▀▀ ▀▀▀ ▀▀  ▀▀▀   ▀▀▀ ▀ ▀ ▀▀
-
-    Serial.println("Time ms: " + String(osTime()));
 
     if (activationMode == ActivationMode::OTAA)
     {
