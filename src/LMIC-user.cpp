@@ -99,6 +99,10 @@ void GoDeepSleep()
         saveSession();
         Serial.println("Go DeepSleep after " + String(millis()) + "ms.");
         Serial.flush();
+        Serial.end();
+        adc_power_off();
+        WiFi.disconnect(true);  // Disconnect from the network
+        WiFi.mode(WIFI_OFF);    // Switch WiFi off
         esp_sleep_enable_timer_wakeup(DEEP_SLEEP_SECONDS * 1000000);
         esp_deep_sleep_start();
     }
@@ -206,7 +210,7 @@ void SendNetworkMessage()
     if (!didSendNetworkMessage)
     {
 
-        WiFi.setSleep(WIFI_PS_NONE);
+        //WiFi.setSleep(WIFI_PS_NONE);
         uint8_t num = WiFi.scanNetworks();
         if (num == 0)
         {
@@ -240,7 +244,7 @@ void SendNetworkMessage()
             payloadLength += 2;
         }
 
-        WiFi.setSleep(WIFI_PS_MAX_MODEM);
+        WiFi.mode(WIFI_OFF);
         printEvent("Message queued. Sending now. FPORT: " + String(fPort));
         scheduleMessage(fPort, payloadBuffer, payloadLength);
     }

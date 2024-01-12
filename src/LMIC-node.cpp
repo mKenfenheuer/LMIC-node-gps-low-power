@@ -94,7 +94,7 @@ void os_getArtEui(u1_t *buf) {}
 void os_getDevKey(u1_t *buf) {}
 #endif
 
-#if defined(USE_SERIAL) || defined(USE_DISPLAY)
+#if defined(USE_SERIAL)
 
 void printChars(Print &printer, char ch, uint8_t count, bool linefeed)
 {
@@ -140,42 +140,17 @@ void setTxIndicatorsOn(bool on)
 #ifdef USE_LED
         led.on();
 #endif
-#ifdef USE_DISPLAY
-        displayTxSymbol(true);
-#endif
     }
     else
     {
 #ifdef USE_LED
         led.off();
 #endif
-#ifdef USE_DISPLAY
-        displayTxSymbol(false);
-#endif
     }
 }
 
-#endif // USE_SERIAL || USE_DISPLAY
+#endif // USE_SERIAL
 
-#ifdef USE_DISPLAY
-void initDisplay()
-{
-    display.begin();
-    display.setFont(u8x8_font_victoriamedium8_r);
-}
-
-void displayTxSymbol(bool visible)
-{
-    if (visible)
-    {
-        display.drawTile(TXSYMBOL_COL, ROW_0, 1, transmitSymbol);
-    }
-    else
-    {
-        display.drawGlyph(TXSYMBOL_COL, ROW_0, char(0x20));
-    }
-}
-#endif // USE_DISPLAY
 
 #ifdef USE_SERIAL
 bool initSerial(unsigned long speed, int16_t timeoutSeconds)
@@ -196,39 +171,15 @@ bool initSerial(unsigned long speed, int16_t timeoutSeconds)
     {
         bool indefinite = (timeoutSeconds < 0);
         uint16_t secondsLeft = timeoutSeconds;
-#ifdef USE_DISPLAY
-        display.setCursor(0, ROW_1);
-        display.print(F("Waiting for"));
-        display.setCursor(0, ROW_2);
-        display.print(F("serial port"));
-#endif
 
         while (!serial && (indefinite || secondsLeft > 0))
         {
             if (!indefinite)
             {
-#ifdef USE_DISPLAY
-                display.clearLine(ROW_4);
-                display.setCursor(0, ROW_4);
-                display.print(F("timeout in "));
-                display.print(secondsLeft);
-                display.print('s');
-#endif
                 --secondsLeft;
             }
             delay(1000);
         }
-#ifdef USE_DISPLAY
-        display.setCursor(0, ROW_4);
-        if (serial)
-        {
-            display.print(F("Connected"));
-        }
-        else
-        {
-            display.print(F("NOT connected"));
-        }
-#endif
     }
 #endif
 
@@ -372,22 +323,6 @@ void printEvent(ostime_t timestamp,
                 bool clearDisplayStatusRow,
                 bool eventLabel)
 {
-#ifdef USE_DISPLAY
-    if (target == PrintTarget::All || target == PrintTarget::Display)
-    {
-        display.clearLine(TIME_ROW);
-        display.setCursor(COL_0, TIME_ROW);
-        display.print(F("Time:"));
-        display.print(timestamp);
-        display.clearLine(EVENT_ROW);
-        if (clearDisplayStatusRow)
-        {
-            display.clearLine(STATUS_ROW);
-        }
-        display.setCursor(COL_0, EVENT_ROW);
-        display.print(message);
-    }
-#endif
 
 #ifdef USE_SERIAL
     // Create padded/indented output without using printf().
@@ -416,25 +351,13 @@ void printEvent(ostime_t timestamp,
                 PrintTarget target,
                 bool clearDisplayStatusRow)
 {
-#if defined(USE_DISPLAY) || defined(USE_SERIAL)
+#if defined(USE_SERIAL)
     printEvent(timestamp, lmicEventNames[ev], target, clearDisplayStatusRow, true);
 #endif
 }
 
 void printFrameCounters(PrintTarget target = PrintTarget::All)
 {
-#ifdef USE_DISPLAY
-    if (target == PrintTarget::Display || target == PrintTarget::All)
-    {
-        display.clearLine(FRMCNTRS_ROW);
-        display.setCursor(COL_0, FRMCNTRS_ROW);
-        display.print(F("Up:"));
-        display.print(LMIC.seqnoUp);
-        display.print(F(" Dn:"));
-        display.print(LMIC.seqnoDn);
-    }
-#endif
-
 #ifdef USE_SERIAL
     if (target == PrintTarget::Serial || target == PrintTarget::All)
     {
@@ -477,7 +400,7 @@ void printSessionKeys()
 
 void printDownlinkInfo(void)
 {
-#if defined(USE_SERIAL) || defined(USE_DISPLAY)
+#if defined(USE_SERIAL)
 
     uint8_t dataLength = LMIC.dataLen;
     // bool ackReceived = LMIC.txrxFlags & TXRX_ACK;
@@ -492,26 +415,6 @@ void printDownlinkInfo(void)
     {
         fPort = LMIC.frame[LMIC.dataBeg - 1];
     }
-
-#ifdef USE_DISPLAY
-    display.clearLine(EVENT_ROW);
-    display.setCursor(COL_0, EVENT_ROW);
-    display.print(F("RX P:"));
-    display.print(fPort);
-    if (dataLength != 0)
-    {
-        display.print(" Len:");
-        display.print(LMIC.dataLen);
-    }
-    display.clearLine(STATUS_ROW);
-    display.setCursor(COL_0, STATUS_ROW);
-    display.print(F("RSSI"));
-    display.print(rssi);
-    display.print(F(" SNR"));
-    display.print(snr);
-    display.print(".");
-    display.print(snrDecimalFraction);
-#endif
 
 #ifdef USE_SERIAL
     printSpaces(serial, MESSAGE_INDENT);
@@ -545,23 +448,6 @@ void printDownlinkInfo(void)
 
 void printHeader(void)
 {
-#ifdef USE_DISPLAY
-    display.clear();
-    display.setCursor(COL_0, HEADER_ROW);
-    display.print(F("LMIC-node"));
-#ifdef ABP_ACTIVATION
-    display.drawString(ABPMODE_COL, HEADER_ROW, "ABP");
-#endif
-#ifdef CLASSIC_LMIC
-    display.drawString(CLMICSYMBOL_COL, HEADER_ROW, "*");
-#endif
-    display.drawString(COL_0, DEVICEID_ROW, deviceId);
-    display.setCursor(COL_0, INTERVAL_ROW);
-    display.print(F("Interval:"));
-    display.print(doWorkIntervalSeconds);
-    display.print("s");
-#endif
-
 #ifdef USE_SERIAL
     serial.println(F("\n\nLMIC-node\n"));
     serial.print(F("Device-id:     "));
@@ -888,11 +774,6 @@ lmic_tx_error_t scheduleUplink(uint8_t fPort, uint8_t *data, uint8_t dataLength,
 #endif
         printEvent(timestamp, errmsg.c_str(), PrintTarget::Serial);
 #endif
-#ifdef USE_DISPLAY
-        errmsg = "LMIC Err: ";
-        errmsg.concat(retval);
-        printEvent(timestamp, errmsg.c_str(), PrintTarget::Display);
-#endif
     }
     return retval;
 }
@@ -927,9 +808,6 @@ void processWork(ostime_t doWorkJobTimeStamp)
 #ifdef USE_SERIAL
             printEvent(timestamp, "Uplink not scheduled because TxRx pending", PrintTarget::Serial);
 #endif
-#ifdef USE_DISPLAY
-            printEvent(timestamp, "UL not scheduled", PrintTarget::Display);
-#endif
         }
         else
         {
@@ -947,17 +825,13 @@ void setup()
     // boardInit(InitType::Hardware) must be called at start of setup() before anything else.
     bool hardwareInitSucceeded = boardInit(InitType::Hardware);
 
-#ifdef USE_DISPLAY
-    initDisplay();
-#endif
-
 #ifdef USE_SERIAL
     initSerial(MONITOR_SPEED, WAITFOR_SERIAL_S);
 #endif
 
     boardInit(InitType::PostInitSerial);
 
-#if defined(USE_SERIAL) || defined(USE_DISPLAY)
+#if defined(USE_SERIAL)
     printHeader();
 #endif
 
@@ -967,13 +841,9 @@ void setup()
         serial.println(F("Error: hardware init failed."));
         serial.flush();
 #endif
-#ifdef USE_DISPLAY
-        // Following mesage shown only if failure was unrelated to I2C.
-        display.setCursor(COL_0, FRMCNTRS_ROW);
-        display.print(F("HW init failed"));
-#endif
         abort();
     }
+    
 
     initLmic();
 

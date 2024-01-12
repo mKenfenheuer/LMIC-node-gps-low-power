@@ -107,12 +107,15 @@ TinyGPSPlus gps;
 
 void wakeGPS()
 {
+    Serial2.begin(9600, SERIAL_8N1, D7, D6);
     digitalWrite(MTCK, HIGH);
 }
 
 void sleepGPS()
 {
     digitalWrite(MTCK, LOW);
+    pinMode(MTCK, INPUT_PULLDOWN);
+    Serial2.end();
 }
 
 long lastSerialData = 0;
@@ -206,7 +209,7 @@ bool boardInit(InitType initType)
     {
     case InitType::Hardware:
         pinMode(MTCK, OUTPUT);
-        Serial2.begin(9600, SERIAL_8N1, D7, D6);
+        setCpuFrequencyMhz(80);
         wakeGPS();
         // Note: Serial port and display are not yet initialized and cannot be used use here.
         break;

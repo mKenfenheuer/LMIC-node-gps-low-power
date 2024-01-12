@@ -5,6 +5,7 @@
 
 #include "WiFi.h"
 #include "LMIC-node.h"
+#include "driver/adc.h"
 
 void UserSetup();
 void UserLoop();

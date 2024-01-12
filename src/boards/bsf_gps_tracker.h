@@ -80,6 +80,8 @@
 #define DEVICEID_DEFAULT "gpstracker" // Default deviceid value
 
 #include "LMIC-node.h"
+#include "SPI.h"
+#include "WiFi.h"
 #include <TinyGPSPlus.h>
 
 #define BATTERY_RT 220
