@@ -69,7 +69,6 @@
 
 #include "bsf_gps_tracker.h"
 
-
 // Wait for Serial
 // Can be useful for boards with MCU with integrated USB support.
 // #define WAITFOR_SERIAL_SECONDS_DEFAULT 10   // -1 waits indefinitely
@@ -86,7 +85,7 @@ const lmic_pinmap lmic_pins = {
     .nss = D5,
     .rxtx = LMIC_UNUSED_PIN,
     .rst = D4, // See remark about LORA_RST above.
-    .dio = {/*dio0*/ D0, /*dio1*/ D1, /*dio2*/ D2}
+    .dio = {/*dio0*/ D2, /*dio1*/ D1, /*dio2*/ D0}
 #ifdef MCCI_LMIC
     ,
     .rxtx_rx_active = 0,
@@ -108,24 +107,31 @@ TinyGPSPlus gps;
 
 void wakeGPS()
 {
-    digitalWrite(D3, HIGH);
-    delay(100);
-    Serial2.println("$PMTK101*32");
+    digitalWrite(MTCK, HIGH);
 }
 
 void sleepGPS()
 {
-    digitalWrite(D3, LOW);
-    Serial2.println("$PMTK225,4*2F");
+    digitalWrite(MTCK, LOW);
 }
+
+long lastSerialData = 0;
 
 void hardwareLoop()
 {
     if (Serial2.available())
     {
         int data = Serial2.read();
-        //Serial.write(data);
+        lastSerialData = millis();
         gps.encode(data);
+    }
+    else
+    {
+        if (millis() - lastSerialData > 5000)
+        {
+            lastSerialData = millis();
+            Serial.println("No Serial Data since 5 seconds.");
+        }
     }
 }
 
@@ -199,7 +205,7 @@ bool boardInit(InitType initType)
     switch (initType)
     {
     case InitType::Hardware:
-        pinMode(D3, OUTPUT);
+        pinMode(MTCK, OUTPUT);
         Serial2.begin(9600, SERIAL_8N1, D7, D6);
         wakeGPS();
         // Note: Serial port and display are not yet initialized and cannot be used use here.

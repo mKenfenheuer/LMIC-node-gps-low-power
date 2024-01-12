@@ -38,13 +38,13 @@
  *                SPI/LoRa            GPIO
  *                ---                 ----
  *                MOSI  <――――――――――>  D10  (MOSI) (LORA_MOSI)
- *                MISO  <――――――――――>  D9  (MISO) (LORA_MISO)
- *                SCK   <――――――――――>  D8  (SCK)  (LORA_SCK)
- *                NSS   <――――――――――>  D5  (SS)   (LORA_CS)
- *                RST   <――――――――――>  D4         (LORA_RST)
- *                DIO0  <――――――――――>  D0         (LORA_IRQ)
+ *                MISO  <――――――――――>  D9   (MISO) (LORA_MISO)
+ *                SCK   <――――――――――>  D8   (SCK)  (LORA_SCK)
+ *                NSS   <――――――――――>  D4   (SS)   (LORA_CS)
+ *                RST   <――――――――――>  D5          (LORA_RST)
+ *                DIO0  <――――――――――>  D2          (LORA_IRQ)
  *                DIO1  <――――――――――>  D1
- *                DIO2  <――――――――――>  D2
+ *                DIO2  <――――――――――>  D0
  *
  *                Button switches     GPIO
  *                ------              ----
@@ -69,6 +69,11 @@
 
 #pragma once
 
+#define MTCK GPIO_NUM_39
+#define MTDO GPIO_NUM_40
+#define MTDI GPIO_NUM_41
+#define MTMS GPIO_NUM_42
+
 #ifndef BSF_GPS_TRACKER_H_
 #define BSF_GPS_TRACKER_H_
 
@@ -77,8 +82,11 @@
 #include "LMIC-node.h"
 #include <TinyGPSPlus.h>
 
-#define BATTERY_PIN 39
-#define BATTERY_FACTOR 9.9
+#define BATTERY_RT 220
+#define BATTERY_RB 100
+
+#define BATTERY_PIN D3
+#define BATTERY_FACTOR 1.0f / ((float)BATTERY_RB / ((float)BATTERY_RT + (float)BATTERY_RB)) * 3.3f
 
 #define BATTERY_100_V 4.20
 #define BATTERY_90_V 3.95
@@ -91,7 +99,6 @@
 #define BATTERY_20_V 3.50
 #define BATTERY_10_V 3.40
 #define BATTERY_0_V 3.00
-
 
 // Wait for Serial
 // Can be useful for boards with MCU with integrated USB support.

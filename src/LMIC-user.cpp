@@ -56,8 +56,11 @@ void SetState(SystemState newState)
         printEvent("State switched to STATE_SEND_NETWORK_MESSAGE");
         break;
     case STATE_DEEP_SLEEP_REQUESTED:
-        systemState = newState;
-        printEvent("State switched to STATE_DEEP_SLEEP_REQUESTED");
+        if (DEEP_SLEEP_ENABLED)
+        {
+            systemState = newState;
+            printEvent("State switched to STATE_DEEP_SLEEP_REQUESTED");
+        }
         break;
     default:
         printEvent("Tried to set state to unknown state: " + String(systemState));
@@ -90,12 +93,15 @@ bool IsLocationValid()
 
 void GoDeepSleep()
 {
-    sleepGPS();
-    saveSession();
-    Serial.println("Go DeepSleep after " + String(millis()) + "ms.");
-    Serial.flush();
-    esp_sleep_enable_timer_wakeup(DEEP_SLEEP_SECONDS * 1000000);
-    esp_deep_sleep_start();
+    if (DEEP_SLEEP_ENABLED)
+    {
+        sleepGPS();
+        saveSession();
+        Serial.println("Go DeepSleep after " + String(millis()) + "ms.");
+        Serial.flush();
+        esp_sleep_enable_timer_wakeup(DEEP_SLEEP_SECONDS * 1000000);
+        esp_deep_sleep_start();
+    }
 }
 
 void SendGPSMessage()
@@ -162,6 +168,16 @@ void SendGPSMessage()
     payloadBuffer[payloadLength++] = puc[2];
     payloadBuffer[payloadLength++] = puc[3];
 
+    float batV = GetBatteryVoltage();
+    float batP = GetBatteryPercent(batV);
+
+    printEvent("Battery voltage: " + String(batV));
+    printEvent("Battery percent: " + String(batP));
+
+    payloadBuffer[payloadLength] = ((batV - 3) / 2.0) * 255;
+    payloadBuffer[payloadLength + 1] = (batP / 100.0) * 255;
+    payloadLength += 2;
+
     printEvent("Message queued. Sending now. FPORT: " + String(fPort));
     scheduleMessage(fPort, payloadBuffer, payloadLength);
 }
@@ -176,7 +192,16 @@ void SendNetworkMessage()
     ostime_t timestamp = os_getTime();
     uint8_t payloadLength = 0;
     uint8_t fPort = 0;
-    SetState(STATE_DEEP_SLEEP_REQUESTED);
+
+    if (DEEP_SLEEP_ENABLED)
+    {
+        SetState(STATE_DEEP_SLEEP_REQUESTED);
+    }
+    else
+    {
+        hadGPSFix = false;
+        SetState(STATE_WAIT_GPS_FIRST_FIX);
+    }
 
     if (!didSendNetworkMessage)
     {
@@ -204,19 +229,22 @@ void SendNetworkMessage()
                 payloadLength++;
             }
 
-            /*float batV = GetBatteryVoltage();
+            float batV = GetBatteryVoltage();
             float batP = GetBatteryPercent(batV);
+
+            printEvent("Battery voltage: " + String(batV));
+            printEvent("Battery percent: " + String(batP));
 
             payloadBuffer[payloadLength] = ((batV - 3) / 2.0) * 255;
             payloadBuffer[payloadLength + 1] = (batP / 100.0) * 255;
-            payloadLength += 2;*/
+            payloadLength += 2;
         }
 
         WiFi.setSleep(WIFI_PS_MAX_MODEM);
         printEvent("Message queued. Sending now. FPORT: " + String(fPort));
         scheduleMessage(fPort, payloadBuffer, payloadLength);
     }
-    else if (getMessageQueue() <= 0 && getMessageCount() > 0)
+    else if (getMessageQueue() <= 0 && getMessageCount() > 0 && DEEP_SLEEP_ENABLED)
     {
         printEvent("Forcing deep sleep now.");
         GoDeepSleep();
@@ -244,7 +272,7 @@ void UserPrepareMessage()
             SetState(STATE_WAIT_GPS_FIX);
         break;
     case STATE_WAIT_GPS_FIRST_FIX:
-        if (millis() > GPS_FIRST_FIX_TIMEOUT)
+        if (msSinceLastMessage() > GPS_FIRST_FIX_TIMEOUT)
         {
             SetState(STATE_SEND_NETWORK_MESSAGE);
             printEvent("Sending network message as fallback");
@@ -259,7 +287,7 @@ void UserPrepareMessage()
         }
         break;
     case STATE_WAIT_GPS_FIX:
-        if (millis() > GPS_FIX_TIMEOUT)
+        if (msSinceLastMessage() > GPS_FIX_TIMEOUT)
         {
             SetState(STATE_SEND_NETWORK_MESSAGE);
             printEvent("Sending network message as fallback");
@@ -313,8 +341,15 @@ void UserPrepareMessage()
     case STATE_SEND_NETWORK_MESSAGE:
         if (getMessageCount() > 0)
         {
-            printEvent("Sent at least 1 message, requesting DeepSleep.");
-            SetState(STATE_DEEP_SLEEP_REQUESTED);
+            if (DEEP_SLEEP_ENABLED)
+            {
+                printEvent("Sent at least 1 message, requesting DeepSleep.");
+                SetState(STATE_DEEP_SLEEP_REQUESTED);
+            }
+            else
+            {
+                SetState(STATE_WAIT_GPS_FIRST_FIX);
+            }
         }
         break;
 
